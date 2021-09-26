@@ -208,7 +208,7 @@ namespace TwitchLeecher.Services.Services
             {
                 if (IsAuthorized)
                 {
-                    webClient.Headers.Add(TWITCH_AUTHORIZATION_HEADER, "OAuth " + _twitchAuthInfo.AccessToken);
+                    webClient.Headers.Add(TWITCH_AUTHORIZATION_HEADER, "Bearer " + _twitchAuthInfo.AccessToken);
                 }
 
                 string accessTokenStr = webClient.UploadString(ACCESS_TOKEN_URL, CreateGqlPlaybackAccessToken(id));
