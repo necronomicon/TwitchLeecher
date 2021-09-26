@@ -8,6 +8,8 @@ namespace TwitchLeecher.Services.Interfaces
     {
         #region Properties
 
+        bool IsAuthorized { get; }
+
         ObservableCollection<TwitchVideo> Videos { get; }
 
         ObservableCollection<TwitchVideoDownload> Downloads { get; }
@@ -21,6 +23,10 @@ namespace TwitchLeecher.Services.Interfaces
         bool ChannelExists(string channel);
 
         string GetChannelIdByName(string channel);
+
+        bool Authorize(string accessToken);
+
+        void RevokeAuthorization();
 
         void Search(SearchParameters searchParams);
 

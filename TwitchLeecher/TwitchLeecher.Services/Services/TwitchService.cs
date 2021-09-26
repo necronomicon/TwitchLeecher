@@ -28,6 +28,8 @@ namespace TwitchLeecher.Services.Services
     {
         #region Constants
 
+        private const string AUTH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate";
+        private const string AUTH_REVOKE_URL = "https://id.twitch.tv/oauth2/revoke?client_id={0}&token={1}";
         private const string VIDEO_URL = "https://api.twitch.tv/kraken/videos/{0}";
         private const string GAMES_URL = "https://api.twitch.tv/kraken/games/top";
         private const string USERS_URL = "https://api.twitch.tv/kraken/users";
@@ -50,6 +52,7 @@ namespace TwitchLeecher.Services.Services
         private const string TWITCH_CLIENT_ID_WEB = "kimne78kx3ncx6brgo4mv6wki5h1ko";
         private const string TWITCH_V5_ACCEPT_HEADER = "Accept";
         private const string TWITCH_V5_ACCEPT = "application/vnd.twitchtv.v5+json";
+        private const string TWITCH_AUTHORIZATION_HEADER = "Authorization";
 
         #endregion Constants
 
@@ -59,6 +62,7 @@ namespace TwitchLeecher.Services.Services
 
         private readonly IPreferencesService _preferencesService;
         private readonly IProcessingService _processingService;
+        private readonly IRuntimeDataService _runtimeDataService;
         private readonly IEventAggregator _eventAggregator;
 
         private readonly Timer _downloadTimer;
@@ -68,6 +72,7 @@ namespace TwitchLeecher.Services.Services
 
         private ConcurrentDictionary<string, DownloadTask> _downloadTasks;
         private Dictionary<string, Uri> _gameThumbnails;
+        private TwitchAuthInfo _twitchAuthInfo;
 
         private readonly object _changeDownloadLockObject;
 
@@ -80,10 +85,12 @@ namespace TwitchLeecher.Services.Services
         public TwitchService(
             IPreferencesService preferencesService,
             IProcessingService processingService,
+            IRuntimeDataService runtimeDataService,
             IEventAggregator eventAggregator)
         {
             _preferencesService = preferencesService;
             _processingService = processingService;
+            _runtimeDataService = runtimeDataService;
             _eventAggregator = eventAggregator;
 
             _videos = new ObservableCollection<TwitchVideo>();
@@ -104,6 +111,14 @@ namespace TwitchLeecher.Services.Services
         #endregion Constructors
 
         #region Properties
+
+        public bool IsAuthorized
+        {
+            get
+            {
+                return _twitchAuthInfo != null;
+            }
+        }
 
         public ObservableCollection<TwitchVideo> Videos
         {
@@ -157,6 +172,13 @@ namespace TwitchLeecher.Services.Services
 
         #region Methods
 
+        private WebClient CreateAuthApiWebClient()
+        {
+            WebClient wc = new WebClient();
+            wc.Encoding = Encoding.UTF8;
+            return wc;
+        }
+
         private WebClient CreatePublicApiWebClient()
         {
             WebClient wc = new WebClient();
@@ -184,6 +206,11 @@ namespace TwitchLeecher.Services.Services
 
             using (WebClient webClient = CreatePrivateApiWebClient())
             {
+                if (IsAuthorized)
+                {
+                    webClient.Headers.Add(TWITCH_AUTHORIZATION_HEADER, "OAuth " + _twitchAuthInfo.AccessToken);
+                }
+
                 string accessTokenStr = webClient.UploadString(ACCESS_TOKEN_URL, CreateGqlPlaybackAccessToken(id));
 
                 JObject accessTokenJson = JObject.Parse(accessTokenStr);
@@ -339,6 +366,64 @@ namespace TwitchLeecher.Services.Services
 
                 return null;
             }
+        }
+
+        public bool Authorize(string accessToken)
+        {
+            if (!string.IsNullOrWhiteSpace(accessToken))
+            {
+                using (WebClient webClient = CreateAuthApiWebClient())
+                {
+                    webClient.Headers.Add(TWITCH_AUTHORIZATION_HEADER, "Bearer " + accessToken);
+
+                    string result = null;
+
+                    try
+                    {
+                        result = webClient.DownloadString(AUTH_VALIDATE_URL);
+                    }
+                    catch (WebException)
+                    {
+                        // Any WebException indicates that the access token could not be verified
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(result))
+                    {
+                        JObject json = JObject.Parse(result);
+
+                        if (json != null)
+                        {
+                            string login = json.Value<string>("login");
+                            string userId = json.Value<string>("user_id");
+                            string clientId = json.Value<string>("client_id");
+
+                            if (!string.IsNullOrWhiteSpace(login) && !string.IsNullOrWhiteSpace(userId) && !string.IsNullOrWhiteSpace(clientId) && clientId.Equals(TWITCH_CLIENT_ID, StringComparison.OrdinalIgnoreCase))
+                            {
+                                _twitchAuthInfo = new TwitchAuthInfo(accessToken, login, userId);
+                                FireIsAuthorizedChanged();
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            RevokeAuthorization();
+            return false;
+        }
+
+        public void RevokeAuthorization()
+        {
+            if (IsAuthorized)
+            {
+                using (WebClient webClient = CreateAuthApiWebClient())
+                {
+                    webClient.UploadString(string.Format(AUTH_REVOKE_URL, TWITCH_CLIENT_ID, _twitchAuthInfo.AccessToken), string.Empty);
+                }
+            }
+
+            _twitchAuthInfo = null;
+            FireIsAuthorizedChanged();
         }
 
         public void Search(SearchParameters searchParams)
@@ -1301,6 +1386,15 @@ namespace TwitchLeecher.Services.Services
             }
 
             return false;
+        }
+
+        private void FireIsAuthorizedChanged()
+        {
+            _runtimeDataService.RuntimeData.AccessToken = _twitchAuthInfo?.AccessToken;
+            _runtimeDataService.Save();
+
+            FirePropertyChanged(nameof(IsAuthorized));
+            _eventAggregator.GetEvent<IsAuthorizedChangedEvent>().Publish(IsAuthorized);
         }
 
         private void FireVideosCountChanged()
