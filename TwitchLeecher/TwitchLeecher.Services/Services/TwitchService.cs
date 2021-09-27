@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,6 +53,7 @@ namespace TwitchLeecher.Services.Services
         private const string TWITCH_CLIENT_ID_WEB = "kimne78kx3ncx6brgo4mv6wki5h1ko";
         private const string TWITCH_V5_ACCEPT_HEADER = "Accept";
         private const string TWITCH_V5_ACCEPT = "application/vnd.twitchtv.v5+json";
+        private const string TWITCH_AUTHORIZATION_PARAM = "oauth_token";
         private const string TWITCH_AUTHORIZATION_HEADER = "Authorization";
 
         #endregion Constants
@@ -208,6 +210,7 @@ namespace TwitchLeecher.Services.Services
             {
                 if (IsAuthorized)
                 {
+                    webClient.QueryString.Add(TWITCH_AUTHORIZATION_PARAM, _twitchAuthInfo.AccessToken);
                     webClient.Headers.Add(TWITCH_AUTHORIZATION_HEADER, "Bearer " + _twitchAuthInfo.AccessToken);
                 }
 
